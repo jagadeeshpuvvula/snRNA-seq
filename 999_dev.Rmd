@@ -1,0 +1,37 @@
+---
+title: "999_functions"
+author: "Jagadeesh Puvvula"
+date: "2026-05-31"
+output: pdf_document
+---
+
+```{r}
+min_genes  <- 200
+max_genes  <- 6000
+max_mt_pct <- 5
+
+process_one <- function(dir, sample_id) {
+  counts <- Read10X(dir)
+  obj <- CreateSeuratObject(counts, project = sample_id,
+                            min.cells = 3, min.features = min_genes)
+  obj$sample    <- sample_id
+  obj$ancestry  <- str_extract(sample_id, "^[A-Z]{2}")
+  obj$fetal_sex <- str_match(sample_id, "^[A-Z]{2}_([FM])")[,2]
+  obj[["percent.mt"]] <- PercentageFeatureSet(obj, pattern = "^MT-")
+
+  obj <- subset(obj, subset = nFeature_RNA >= min_genes &
+                              nFeature_RNA <= max_genes &
+                              percent.mt   <= max_mt_pct)
+
+  sce <- scDblFinder(GetAssayData(obj, layer = "counts"))
+  obj$scDblFinder.class <- sce$scDblFinder.class
+  obj <- subset(obj, subset = scDblFinder.class == "singlet")
+
+  message(sprintf("%s: %d cells after QC", sample_id, ncol(obj)))
+  rm(counts, sce); gc()
+  obj
+}
+
+obj_list <- imap(sample_dirs, process_one)
+```
+

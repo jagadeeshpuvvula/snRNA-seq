@@ -1,0 +1,51 @@
+---
+title: "00_setup_data"
+author: "Jagadeesh Puvvula"
+date: "2026-05-31"
+output: pdf_document
+---
+
+# Unzip Cell Ranger output and inspect the folder structure
+# Each sample has filtered_feature_bc_matrix/ and raw_feature_bc_matrix/ subfolders
+```{r}
+zip_path  <- "~/Documents/snRNA_seq/cellranger_count_matrices.zip"
+data_root <- "~/Documents/snRNA_seq/cellranger_data"
+
+unzip(zip_path, exdir = data_root)
+
+# List directories to confirm the path pattern before loading
+list.dirs(data_root, recursive = TRUE)
+```
+
+# Locate the 20 filtered matrices and run per-sample QC
+# Loading one sample at a time keeps memory use low on a local machine
+```{r}
+library(Seurat)
+library(Matrix)
+library(tidyverse)
+library(scDblFinder)
+
+data_root <- "~/Documents/snRNA_seq/cellranger_data"
+
+# Find one filtered_feature_bc_matrix folder per sample; name each by its parent folder
+sample_dirs <- list.dirs(data_root, recursive = TRUE) %>%
+  str_subset("filtered_feature_bc_matrix$")
+names(sample_dirs) <- basename(dirname(sample_dirs))
+
+stopifnot(length(sample_dirs) == 20)   # sanity check: expect 20 samples
+print(names(sample_dirs))
+
+# process_one: load counts, build Seurat object, filter low-quality nuclei,
+# tag sample/ancestry/fetal-sex metadata, and remove doublets per sample
+obj_list <- imap(sample_dirs, process_one)
+```
+
+# Merge all 20 QC'd samples into a single object and checkpoint to disk
+```{r}
+merged <- merge(obj_list[[1]], obj_list[-1], add.cell.ids = names(obj_list))
+rm(obj_list); gc()                                          # free memory
+saveRDS(merged, "~/Documents/snRNA_seq/merged_qc.rds")      # save progress
+```
+
+# Normalize with SCTransform (variance-stabilizing transformation)
+# Run sequentially (no parallel workers) to avoid exporting a huge object to each
